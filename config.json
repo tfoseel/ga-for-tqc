@@ -1,0 +1,13 @@
+{
+  "pop_size": 500,
+  "parents_ratio": 0.02,
+  "generations": 100,
+  "seq_length": 100,
+  "mutation_rate": 0.2,
+  "save_log_path": "logs",
+
+  "crossover_type": "two_point",
+  "mutation_type": "inversion",
+
+  "block_size": 5
+}
