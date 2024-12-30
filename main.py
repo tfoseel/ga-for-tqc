@@ -9,10 +9,14 @@ from tqdm import tqdm
 # Import GA utility functions from utils.py
 from utils import fitness, crossover, mutate
 
-# Import all settings from config.py
+# Import all settings from config.py (e.g., pop_size, parents_ratio, etc.)
 import config
 
+# -----------------------------------
+# 1. Define Anyon Generators
+# -----------------------------------
 phi = (1 + np.sqrt(5)) / 2
+
 sigma_1 = np.array([
     [np.exp(-4j * np.pi / 5), 0],
     [0, np.exp(3j * np.pi / 5)]
@@ -20,13 +24,25 @@ sigma_1 = np.array([
 sigma_2 = np.array([
     [np.exp(4j * np.pi / 5) / phi,
      np.exp(-3j * np.pi / 5) / np.sqrt(phi)],
-    [np.exp(-3j * np.pi / 5) / np.sqrt(phi),               -1 / phi]
+    [np.exp(-3j * np.pi / 5) / np.sqrt(phi), -1 / phi]
 ])
 sigma_1_inv = np.linalg.inv(sigma_1)
 sigma_2_inv = np.linalg.inv(sigma_2)
 
-generators = [sigma_1, sigma_2, sigma_1_inv, sigma_2_inv]
-NUM_GENERATORS = len(generators)
+# Identity as -1 index
+I = np.eye(2, dtype=complex)
+
+generators_dict = {
+    -1: I,         # -1 => Identity
+    0: sigma_1,
+    1: sigma_2,
+    2: sigma_1_inv,
+    3: sigma_2_inv
+}
+
+# For convenience, define which indices GA can choose from
+possible_indices = list(generators_dict.keys())
+# i.e., [-1, 0, 1, 2, 3]
 
 
 def copy_config_file(src, dst):
@@ -65,9 +81,11 @@ def genetic_algorithm(unitary):
         csvwriter = csv.writer(csvfile)
         csvwriter.writerow(["Generation", "Best Fitness", "Best Sequence"])
 
-    # Create initial population
+    # -----------------------------------
+    # 2. Create initial population
+    # -----------------------------------
     population = [
-        [random.randint(0, NUM_GENERATORS - 1) for _ in range(seq_length)]
+        [random.choice(possible_indices) for _ in range(seq_length)]
         for _ in range(pop_size)
     ]
 
@@ -84,12 +102,15 @@ def genetic_algorithm(unitary):
     print(f"Crossover Type: {config.crossover_type}")
     print(f"Mutation Type: {config.mutation_type}\n")
 
-    # Main GA loop
+    # -----------------------------------
+    # 3. Main GA loop
+    # -----------------------------------
     with tqdm(range(generations)) as pbar:
         for generation in pbar:
             # Evaluate fitness
+            # NOTE: 'generators_dict' is passed so that fitness() can do M @ generators_dict[idx]
             fitness_scores = [
-                (seq, fitness(seq, unitary, generators))
+                (seq, fitness(seq, unitary, generators_dict))
                 for seq in population
             ]
             fitness_scores.sort(key=lambda x: x[1])  # ascending order
@@ -110,23 +131,25 @@ def genetic_algorithm(unitary):
 
             new_population = elites[:]
 
-            # Create new individuals
+            # Generate new individuals
             while len(new_population) < pop_size:
                 parent1 = random.choice(elites)
                 parent2 = random.choice(elites)
-
-                # We pass some config values as a dict to crossover/mutate
+                # We pass config & the same 'generators_dict' usage to crossover/mutate if needed
                 child1, child2 = crossover(parent1, parent2, {
                     "crossover_type": config.crossover_type,
-                    "block_size": config.block_size
+                    "block_size": config.block_size,
+                    "possible_indices": possible_indices
                 })
-                child1 = mutate(child1, mutation_rate, NUM_GENERATORS, {
+                child1 = mutate(child1, mutation_rate, generators_dict, {
                     "mutation_type": config.mutation_type,
-                    "block_size": config.block_size
+                    "block_size": config.block_size,
+                    "possible_indices": possible_indices
                 })
-                child2 = mutate(child2, mutation_rate, NUM_GENERATORS, {
+                child2 = mutate(child2, mutation_rate, generators_dict, {
                     "mutation_type": config.mutation_type,
-                    "block_size": config.block_size
+                    "block_size": config.block_size,
+                    "possible_indices": possible_indices
                 })
                 new_population.extend([child1, child2])
 
@@ -145,7 +168,9 @@ def genetic_algorithm(unitary):
                 print("Optimal solution found!")
                 break
 
-    # Final results
+    # -----------------------------------
+    # 4. Final results
+    # -----------------------------------
     print("\n=== Genetic Algorithm Finished ===")
     print(f"Best Fitness: {best_fitness_global}")
     print(f"Best Sequence: {best_seq_global}\n")
@@ -166,19 +191,23 @@ def genetic_algorithm(unitary):
     return best_seq_global, best_fitness_global, log_dir
 
 
-# Main entry
+# -----------------------------------
+# 5. Main Entry
+# -----------------------------------
 if __name__ == "__main__":
     # (1) load unitary from config
     unitary = config.target_unitary
 
     # (2) Optional: check fitness of an example sequence
-    seq_example = [1, 1, 2, 2, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 1, 1,
-                   0, 0, 3, 3, 2, 2, 2, 2, 3, 3, 0, 0, 0, 0, 1, 1, 1, 1]
+    from utils import fitness  # re-import for demonstration
 
-    fitness_example = fitness(seq_example, unitary, generators)
+    seq_example = [1, 1, 2, 2, 1, 1, 0, 0,
+                   1, 1, 0, 0, 1, 1, 1, 1,
+                   0, 0, 3, 3, 2, 2, 2, 2,
+                   3, 3, -1, -1, -1, 0, 1, 1, 1, 1]
+    fitness_example = fitness(seq_example, unitary, generators_dict)
     print(f"Fitness for the example sequence: {fitness_example}\n")
 
     # (3) run GA
     best_sequence, best_fitness_val, log_dir = genetic_algorithm(unitary)
-
     print(f"Results are saved in: {log_dir}")
