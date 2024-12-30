@@ -18,7 +18,7 @@ The project is divided into two main parts:
 
 ```bash
 .
-├── config.json
+├── config.py
 ├── main.py
 ├── utils.py
 ├── logs/
@@ -26,23 +26,32 @@ The project is divided into two main parts:
 └── README.md
 ```
 
-### ```config.json```
+### ```config.py```
 
 An example config file might look like:
-```json
-{
-  "pop_size": 500,
-  "parents_ratio": 0.02,
-  "generations": 50,
-  "seq_length": 30,
-  "mutation_rate": 0.2,
-  "save_log_path": "logs",
-  
-  "crossover_type": "two_point",
-  "mutation_type": "swap",
-  
-  "block_size": 5
-}
+```python
+import numpy as np
+
+# Genetic Algorithm hyperparameters
+pop_size = 500
+parents_ratio = 0.02
+generations = 100
+seq_length = 100
+mutation_rate = 0.2
+
+# Logging path
+save_log_path = "logs"
+
+# Crossover & Mutation
+crossover_type = "uniform"
+mutation_type = "inversion"
+block_size = 5  # for block-based operators
+
+# Target unitary (e.g., single-qubit Hadamard gate)
+target_unitary = (1 / np.sqrt(2)) * np.array([
+    [1, 1],
+    [1, -1]
+])
 
 ```
 
@@ -57,6 +66,7 @@ You can customize:
 crossover_type: Which crossover method to use. (e.g., "single_point", "two_point", "uniform", "block_based")
 - ```mutation_type```: Which mutation method to use. (e.g., "point", "swap", "inversion", "shuffle", "block", "guided")
 - ```block_size```: Size of a block for block-based crossover or block mutation.
+- ```target_unitary```: A numpy array for the quantum gate you want to approximate.
 
 ## How to Run
 
@@ -75,7 +85,7 @@ python main.py
 - Logs Folder: After each run, a folder named with the format ```YYYYMMDD_HHMMSS``` is automatically created under ```logs/```.
 - ```log.csv```: Stores generation-by-generation logs.
 - ```fitness_plot.png```: A line plot showing the best fitness value over generations.
-- ```config_used.json```: A copy of the config settings used for that run.
+- ```config_used.py```: A copy of the config settings used for that run.
 
 ## Customization
 
@@ -101,18 +111,7 @@ def mutate(seq, mutation_rate, num_generators, config):
     ...
 ```
 
-Update ```config.json``` with the new type (e.g., ```"crossover_type": "my_new_crossover"```).
-
-### Changing the Target Unitary
-In ```main.py```, look for the line where unitary is defined:
-
-```python
-unitary = (1 / np.sqrt(2)) * np.array([
-    [1, 1],
-    [1, -1]
-])
-```
-Replace it with your desired matrix ($2\times2$ for a single qubit, or larger if you adapt the code for multi-qubit systems).
+Update ```config.py``` with the new type (e.g., ```"crossover_type": "my_new_crossover"```).
 
 ### Using Different Anyon Generators
 In ```main.py```, we define ```generators = [sigma_1, sigma_2, sigma_1_inv, sigma_2_inv]```.

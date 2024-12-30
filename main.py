@@ -1,5 +1,4 @@
 import os
-import json
 import csv
 import random
 import datetime
@@ -7,27 +6,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-# Import necessary functions from utils.py
+# Import GA utility functions from utils.py
 from utils import fitness, crossover, mutate
 
-# -----------------------------------------------------------
-# 1. Load config.json
-# -----------------------------------------------------------
-CONFIG_FILE = "config.json"
+# Import all settings from config.py
+import config
 
-
-def load_config(config_path=CONFIG_FILE):
-    """
-    Load settings from the config.json file.
-    """
-    with open(config_path, 'r', encoding='utf-8') as f:
-        config = json.load(f)
-    return config
-
-
-# -----------------------------------------------------------
-# 2. Anyon Generators (Fibonacci anyons)
-# -----------------------------------------------------------
 phi = (1 + np.sqrt(5)) / 2
 sigma_1 = np.array([
     [np.exp(-4j * np.pi / 5), 0],
@@ -36,7 +20,7 @@ sigma_1 = np.array([
 sigma_2 = np.array([
     [np.exp(4j * np.pi / 5) / phi,
      np.exp(-3j * np.pi / 5) / np.sqrt(phi)],
-    [np.exp(-3j * np.pi / 5) / np.sqrt(phi), -1 / phi]
+    [np.exp(-3j * np.pi / 5) / np.sqrt(phi),               -1 / phi]
 ])
 sigma_1_inv = np.linalg.inv(sigma_1)
 sigma_2_inv = np.linalg.inv(sigma_2)
@@ -44,29 +28,38 @@ sigma_2_inv = np.linalg.inv(sigma_2)
 generators = [sigma_1, sigma_2, sigma_1_inv, sigma_2_inv]
 NUM_GENERATORS = len(generators)
 
-# -----------------------------------------------------------
-# 3. Genetic Algorithm
-# -----------------------------------------------------------
 
-
-def genetic_algorithm(unitary, config):
+def copy_config_file(src, dst):
     """
-    Run the genetic algorithm to approximate the given 'unitary'.
-    It uses hyperparameters and crossover/mutation types specified in config.json.
+    Copies the entire config.py to the logs folder as config_used.py
+    to keep track of the exact config used in each run.
     """
-    pop_size = config.get("pop_size", 2000)
-    parents_ratio = config.get("parents_ratio", 0.01)
-    generations = config.get("generations", 100)
-    seq_length = config.get("seq_length", 50)
-    mutation_rate = config.get("mutation_rate", 0.2)
+    with open(src, 'r', encoding='utf-8') as f_in:
+        with open(dst, 'w', encoding='utf-8') as f_out:
+            f_out.write(f_in.read())
 
-    # Set up the log folder
+
+def genetic_algorithm(unitary):
+    """
+    Run the genetic algorithm to approximate the given 'unitary' matrix.
+    All hyperparameters and GA settings are defined in config.py.
+    """
+    # Load hyperparameters from config.py
+    pop_size = config.pop_size
+    parents_ratio = config.parents_ratio
+    generations = config.generations
+    seq_length = config.seq_length
+    mutation_rate = config.mutation_rate
+
+    # Prepare log directory
     timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-    log_root_dir = config.get("save_log_path", "logs")
-    log_dir = os.path.join(log_root_dir, timestamp)
+    log_dir = os.path.join(config.save_log_path, timestamp)
     os.makedirs(log_dir, exist_ok=True)
 
-    # Initialize CSV log file
+    # Copy the original config.py to config_used.py in the logs folder
+    copy_config_file("config.py", os.path.join(log_dir, "config_used.py"))
+
+    # CSV log initialization
     csv_file_path = os.path.join(log_dir, 'log.csv')
     with open(csv_file_path, 'w', newline='', encoding='utf-8') as csvfile:
         csvwriter = csv.writer(csvfile)
@@ -88,21 +81,20 @@ def genetic_algorithm(unitary, config):
     print(f"Generations: {generations}")
     print(f"Sequence Length: {seq_length}")
     print(f"Mutation Rate: {mutation_rate}")
-    print(f"Crossover Type: {config.get('crossover_type', 'single_point')}")
-    print(f"Mutation Type: {config.get('mutation_type', 'point')}\n")
+    print(f"Crossover Type: {config.crossover_type}")
+    print(f"Mutation Type: {config.mutation_type}\n")
 
     # Main GA loop
     with tqdm(range(generations)) as pbar:
         for generation in pbar:
-            # Evaluate fitness of each sequence
+            # Evaluate fitness
             fitness_scores = [
                 (seq, fitness(seq, unitary, generators))
                 for seq in population
             ]
-            # Sort by fitness (ascending order)
-            fitness_scores.sort(key=lambda x: x[1])
+            fitness_scores.sort(key=lambda x: x[1])  # ascending order
 
-            # Best sequence and fitness in this generation
+            # Best in this generation
             best_seq, best_fit = fitness_scores[0]
 
             # Update global best
@@ -112,34 +104,43 @@ def genetic_algorithm(unitary, config):
 
             best_fitness_history.append(best_fit)
 
-            # Select elites
+            # Elitism
             num_elites = max(1, int(pop_size * parents_ratio))
-            elites = [seq for seq, sc in fitness_scores[:num_elites]]
+            elites = [seq for seq, _ in fitness_scores[:num_elites]]
 
             new_population = elites[:]
 
-            # Generate new population using crossover and mutation
+            # Create new individuals
             while len(new_population) < pop_size:
                 parent1 = random.choice(elites)
                 parent2 = random.choice(elites)
-                child1, child2 = crossover(parent1, parent2, config)
-                child1 = mutate(child1, mutation_rate, NUM_GENERATORS, config)
-                child2 = mutate(child2, mutation_rate, NUM_GENERATORS, config)
+
+                # We pass some config values as a dict to crossover/mutate
+                child1, child2 = crossover(parent1, parent2, {
+                    "crossover_type": config.crossover_type,
+                    "block_size": config.block_size
+                })
+                child1 = mutate(child1, mutation_rate, NUM_GENERATORS, {
+                    "mutation_type": config.mutation_type,
+                    "block_size": config.block_size
+                })
+                child2 = mutate(child2, mutation_rate, NUM_GENERATORS, {
+                    "mutation_type": config.mutation_type,
+                    "block_size": config.block_size
+                })
                 new_population.extend([child1, child2])
 
-            # Trim population to maintain original size
             population = new_population[:pop_size]
 
-            # Update progress bar
+            # Logging
             pbar.set_description(f'Generation {generation + 1}')
             pbar.set_postfix(best_fitness=best_fit)
 
-            # Append this generation's data to CSV log
             with open(csv_file_path, 'a', newline='', encoding='utf-8') as csvfile:
                 csvwriter = csv.writer(csvfile)
                 csvwriter.writerow([generation + 1, best_fit, best_seq])
 
-            # Early stop if fitness is below threshold
+            # Early stop
             if best_fit < 0.001:
                 print("Optimal solution found!")
                 break
@@ -149,7 +150,7 @@ def genetic_algorithm(unitary, config):
     print(f"Best Fitness: {best_fitness_global}")
     print(f"Best Sequence: {best_seq_global}\n")
 
-    # Save generation-by-generation best fitness plot
+    # Plot best fitness curve
     plt.figure(figsize=(8, 5))
     plt.plot(best_fitness_history, label='Best Fitness')
     plt.xlabel('Generation')
@@ -165,35 +166,19 @@ def genetic_algorithm(unitary, config):
     return best_seq_global, best_fitness_global, log_dir
 
 
-# -----------------------------------------------------------
-# 4. Main (Example usage)
-# -----------------------------------------------------------
+# Main entry
 if __name__ == "__main__":
-    # (1) Load config.json
-    config = load_config()  # CONFIG_FILE = "config.json"
+    # (1) load unitary from config
+    unitary = config.target_unitary
 
-    # (2) Target unitary (e.g., single-qubit Hadamard gate)
-    unitary = (1 / np.sqrt(2)) * np.array([
-        [1, 1],
-        [1, -1]
-    ])
-
-    # (3) Check the fitness of an example sequence
-    from utils import fitness  # re-import for demonstration
+    # (2) Optional: check fitness of an example sequence
     seq_example = [1, 1, 2, 2, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 1, 1,
                    0, 0, 3, 3, 2, 2, 2, 2, 3, 3, 0, 0, 0, 0, 1, 1, 1, 1]
+
     fitness_example = fitness(seq_example, unitary, generators)
     print(f"Fitness for the example sequence: {fitness_example}\n")
 
-    # (4) Run the GA
-    best_sequence, best_fitness_val, log_dir = genetic_algorithm(
-        unitary, config)
+    # (3) run GA
+    best_sequence, best_fitness_val, log_dir = genetic_algorithm(unitary)
 
-    # (5) Also save the used config.json to the log folder
-    config_copy_path = os.path.join(log_dir, 'config_used.json')
-    with open(config_copy_path, 'w', encoding='utf-8') as f:
-        json.dump(config, f, ensure_ascii=False, indent=4)
-
-    print(f"\nResults are saved in: {log_dir}")
-    print(f"Best Sequence Found: {best_sequence}")
-    print(f"Best Fitness: {best_fitness_val}")
+    print(f"Results are saved in: {log_dir}")
